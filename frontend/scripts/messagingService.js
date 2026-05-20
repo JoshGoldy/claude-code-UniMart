@@ -1065,6 +1065,43 @@ export async function verifyPaymentCheckout({ transactionId, reference } = {}) {
   return { success: true, payment: result.data?.payment, transaction: result.data?.transaction };
 }
 
+export async function markTransactionPayInPerson({ transactionId, buyerId } = {}) {
+  if (!transactionId || !buyerId) return { error: 'Missing payment choice details.' };
+
+  const { data: transactionRow, error: transactionError } = await getSupabaseClient()
+    .from('transactions')
+    .select('*')
+    .eq('transaction_id', transactionId)
+    .maybeSingle();
+  if (transactionError) return { error: _userFacingError(transactionError, 'Could not load the transaction.') };
+  if (!transactionRow) return { error: 'Transaction not found.' };
+
+  const transaction = toTransaction(transactionRow);
+  if (transaction.buyerId !== buyerId) return { error: 'Only the buyer can choose the payment method.' };
+  if (!transaction.amount || transaction.amount <= 0) return { error: 'This trade does not need a payment choice.' };
+  if (Number(transaction.onlinePaidAmount || 0) > 0 || ['paid', 'partial_paid'].includes(String(transaction.paymentStatus || '').toLowerCase())) {
+    return { error: 'An online payment has already been recorded for this transaction.' };
+  }
+
+  const now = new Date().toISOString();
+  const { data, error } = await getSupabaseClient()
+    .from('transactions')
+    .update({
+      payment_status: 'cash_pending',
+      online_paid_amount: 0,
+      cash_due_amount: transaction.amount,
+      payment_gateway: null,
+      payment_reference: null,
+      updated_at: now,
+    })
+    .eq('transaction_id', transaction.id)
+    .select()
+    .single();
+
+  if (error) return { error: _userFacingError(error, 'Could not save the payment choice. Make sure the payments SQL is up to date.') };
+  return { success: true, transaction: toTransaction(data) };
+}
+
 export async function markTransactionCashSettled({ transactionId, staffId } = {}) {
   if (!transactionId || !staffId) return { error: 'Missing cash settlement details.' };
   const { data: transactionRow, error: transactionError } = await getSupabaseClient()

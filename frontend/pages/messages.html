@@ -966,7 +966,7 @@
     const transactions = result.transactions || [];
     const reviews = result.reviews || [];
     const offerSignature = offers.map(offer => `${offer.id}:${offer.status}:${offer.updatedAt || ''}`).join('|');
-    const transactionSignature = transactions.map(transaction => `${transaction.id}:${transaction.status}:${transaction.facilityBookingId || ''}`).join('|');
+    const transactionSignature = transactions.map(transaction => `${transaction.id}:${transaction.status}:${transaction.paymentStatus || ''}:${transaction.onlinePaidAmount || 0}:${transaction.cashDueAmount || 0}:${transaction.facilityBookingId || ''}`).join('|');
     const reviewSignature = reviews.map(review => `${review.id}:${review.rating}:${review.status}:${review.updatedAt || review.createdAt || ''}`).join('|');
     const nextSignature = `${messages.map(message => `${message.id}:${message.createdAt}:${message.readAt || ''}`).join('|')}::${offerSignature}::${transactionSignature}::${reviewSignature}`;
     document.getElementById('thread-title').textContent = result.conversation.listingTitle;
@@ -1007,7 +1007,7 @@
 
     const offerHtml = latestOffer ? renderOfferCard(latestOffer, conversation) : '';
     const paymentHtml = acceptedTransaction && latestOffer?.status === 'accepted' ? renderPaymentCard(acceptedTransaction) : '';
-    const bookingHtml = acceptedTransaction
+    const bookingHtml = acceptedTransaction && canBookTradeFacility(acceptedTransaction)
       ? renderBookingCard(acceptedTransaction)
       : '';
     const reviewHtml = acceptedTransaction && canReviewTransaction(acceptedTransaction)
@@ -1031,6 +1031,8 @@
     }
     const paymentButton = document.getElementById('start-payment-btn');
     if (paymentButton) paymentButton.addEventListener('click', startOnlinePayment);
+    const payInPersonButton = document.getElementById('pay-in-person-btn');
+    if (payInPersonButton) payInPersonButton.addEventListener('click', choosePayInPerson);
     const reviewButton = document.getElementById('submit-review-btn');
     if (reviewButton) reviewButton.addEventListener('click', submitReview);
     const reviewBody = document.getElementById('review-body');
@@ -1055,16 +1057,31 @@
 
     const paid = Number(transaction.onlinePaidAmount || 0);
     const cashDue = Number(transaction.cashDueAmount || Math.max(0, transaction.amount - paid));
-    const paymentDone = ['paid', 'partial_paid'].includes(transaction.paymentStatus) || paid > 0;
-    const canPay = state.user.id === transaction.buyerId && !paymentDone && !['paid', 'completed'].includes(transaction.paymentStatus);
+    const paymentStatus = String(transaction.paymentStatus || 'unpaid').toLowerCase();
+    const paymentDone = ['paid', 'partial_paid'].includes(paymentStatus);
+    const payInPerson = paymentStatus === 'cash_pending';
+    const paymentInProgress = ['pending', 'partial_pending'].includes(paymentStatus);
+    const canChoosePayment = state.user.id === transaction.buyerId && !paymentDone && !payInPerson && !paymentInProgress && paid <= 0;
+    const canStartOnlinePayment = canChoosePayment;
+    const canChoosePayInPerson = canChoosePayment;
+    const paymentReady = canBookTradeFacility(transaction);
+    const statusCopy = payInPerson
+      ? 'You chose to pay in person. Staff will confirm the cash payment at collection.'
+      : paymentInProgress
+      ? 'Online payment has started. Finish and verify the payment before booking the trade facility handover.'
+      : paymentReady
+      ? 'You can continue with the trade facility handover.'
+      : state.user.id === transaction.buyerId
+      ? 'Choose how you want to pay before the trade facility handover can be booked.'
+      : 'Waiting for the buyer to choose or complete payment before handover booking.';
     return `
       <section class="booking-card-inline">
         <section>
           <section class="offer-title">Payment plan</section>
           <section class="offer-meta">Accepted amount: ${formatCurrency(transaction.amount)}. Online: ${formatCurrency(paid)}. Cash due at collection: ${formatCurrency(cashDue)}.</section>
-          <section class="offer-meta">Status: ${escapeHtml(formatStatusLabel(transaction.paymentStatus || 'unpaid'))}${cashDue > 0 ? '. Staff will confirm the cash balance before release.' : ''}${paymentDone ? ' You can continue with the trade facility handover.' : ''}</section>
+          <section class="offer-meta">Status: ${escapeHtml(formatStatusLabel(transaction.paymentStatus || 'unpaid'))}${cashDue > 0 ? '. Staff will confirm the cash balance before release.' : ''} ${escapeHtml(statusCopy)}</section>
         </section>
-        ${canPay ? `
+        ${canStartOnlinePayment ? `
           <section class="booking-slot-grid">
             <section class="form-group">
               <label class="form-label" for="online-payment-amount">Pay online now</label>
@@ -1072,7 +1089,10 @@
             </section>
           </section>
           <span class="form-error" id="payment-error"></span>
-          <button class="btn btn-primary" id="start-payment-btn" data-transaction-id="${escapeAttribute(transaction.id)}" type="button">Pay online</button>
+          <section class="offer-actions">
+            <button class="btn btn-primary" id="start-payment-btn" data-transaction-id="${escapeAttribute(transaction.id)}" type="button">Pay online</button>
+            ${canChoosePayInPerson ? `<button class="btn btn-secondary" id="pay-in-person-btn" data-transaction-id="${escapeAttribute(transaction.id)}" type="button">Pay in person</button>` : ''}
+          </section>
         ` : ''}
       </section>
     `;
@@ -1117,6 +1137,13 @@
 
   function isTradeDeal(transaction) {
     return transaction.amount === null || transaction.amount === undefined || Number(transaction.amount) <= 0;
+  }
+
+  function canBookTradeFacility(transaction) {
+    if (!transaction) return false;
+    if (isTradeDeal(transaction)) return true;
+    const status = String(transaction.paymentStatus || '').toLowerCase();
+    return ['cash_pending', 'partial_paid', 'paid', 'not_required'].includes(status);
   }
 
   function canReviewTransaction(transaction) {
@@ -1467,6 +1494,34 @@
       return;
     }
     showToast(result.message || 'Payment plan saved. Online checkout is not connected yet.', 'success');
+    await loadMessages(state.activeConversationId, false, { forceRender: true });
+  }
+
+  async function choosePayInPerson() {
+    const button = document.getElementById('pay-in-person-btn');
+    const error = document.getElementById('payment-error');
+    const transaction = state.transactions.find(item => item.id === button?.dataset.transactionId);
+    if (!button || !transaction) return;
+
+    error.textContent = '';
+    button.disabled = true;
+    const originalText = button.textContent;
+    button.textContent = 'Saving...';
+
+    const result = await Auth.markTransactionPayInPerson({
+      transactionId: transaction.id,
+      buyerId: state.user.id,
+    });
+
+    button.disabled = false;
+    button.textContent = originalText;
+
+    if (result.error) {
+      error.textContent = result.error;
+      return;
+    }
+
+    showToast('Pay in person selected', 'success');
     await loadMessages(state.activeConversationId, false, { forceRender: true });
   }
 

@@ -27,7 +27,7 @@ drop constraint if exists transactions_payment_status_check;
 
 alter table public.transactions
 add constraint transactions_payment_status_check
-check (payment_status in ('not_required', 'unpaid', 'pending', 'partial_pending', 'partial_paid', 'paid', 'failed', 'cancelled'));
+check (payment_status in ('not_required', 'unpaid', 'cash_pending', 'pending', 'partial_pending', 'partial_paid', 'paid', 'failed', 'cancelled'));
 
 update public.transactions
 set cash_due_amount = coalesce(amount, 0),
