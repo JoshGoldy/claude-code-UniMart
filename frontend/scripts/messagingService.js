@@ -174,13 +174,65 @@ export async function startOffer({ listingId, buyerId, offerText, messageText = 
   const offerType = amount === null ? 'trade' : 'purchase';
   const now = new Date().toISOString();
 
-  await getSupabaseClient()
-    .from('offers')
-    .update({ status: 'declined', updated_at: now })
-    .eq('conversation_id', conversationId)
-    .eq('buyer_id', conversation.buyer_id)
-    .eq('seller_id', conversation.seller_id)
-    .eq('status', 'pending');
+  const replacementValues = {
+    offer_type: offerType,
+    amount,
+    note: cleanOffer,
+    status: 'pending',
+    responded_at: null,
+    updated_at: now,
+  };
+
+  const replaceableStatuses = ['pending', 'declined', 'rejected'];
+  let existingOffer = null;
+  try {
+    const existing = await getSupabaseClient()
+      .from('offers')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .eq('listing_id', conversation.listing_id)
+      .eq('buyer_id', conversation.buyer_id)
+      .eq('seller_id', conversation.seller_id)
+      .in('status', replaceableStatuses)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!existing.error) existingOffer = existing.data || null;
+  } catch (err) {
+    console.warn('Existing offer lookup skipped:', err?.message || err);
+  }
+
+  if (existingOffer) {
+    const offerId = _offerId(existingOffer);
+    let update = await getSupabaseClient()
+      .from('offers')
+      .update(replacementValues)
+      .eq('offer_id', offerId)
+      .select()
+      .single();
+
+    if (update.error && /offer_id|column .* does not exist/i.test(update.error.message || '')) {
+      update = await getSupabaseClient()
+        .from('offers')
+        .update(replacementValues)
+        .eq('id', offerId)
+        .select()
+        .single();
+    }
+
+    if (update.error) return { error: _userFacingError(update.error) };
+
+    await getSupabaseClient()
+      .from('offers')
+      .update({ status: 'declined', updated_at: now })
+      .eq('conversation_id', conversationId)
+      .eq('buyer_id', conversation.buyer_id)
+      .eq('seller_id', conversation.seller_id)
+      .neq('offer_id', offerId)
+      .in('status', replaceableStatuses);
+
+    return { success: true, conversation: { ...conversation, id: conversationId }, offer: toOffer(update.data) };
+  }
 
   let { data, error } = await getSupabaseClient()
     .from('offers')
@@ -189,12 +241,8 @@ export async function startOffer({ listingId, buyerId, offerText, messageText = 
       listing_id: conversation.listing_id,
       buyer_id: conversation.buyer_id,
       seller_id: conversation.seller_id,
-      offer_type: offerType,
-      amount,
-      note: cleanOffer,
-      status: 'pending',
+      ...replacementValues,
       created_at: now,
-      updated_at: now,
     })
     .select()
     .single();
@@ -202,14 +250,7 @@ export async function startOffer({ listingId, buyerId, offerText, messageText = 
   if (error && /duplicate key|violates .*constraint|on conflict/i.test(error.message || '')) {
     const fallback = await getSupabaseClient()
       .from('offers')
-      .update({
-        offer_type: offerType,
-        amount,
-        note: cleanOffer,
-        status: 'pending',
-        responded_at: null,
-        updated_at: now,
-      })
+      .update(replacementValues)
       .eq('conversation_id', conversationId)
       .eq('buyer_id', conversation.buyer_id)
       .eq('seller_id', conversation.seller_id)

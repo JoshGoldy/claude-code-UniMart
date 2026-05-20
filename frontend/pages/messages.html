@@ -279,6 +279,38 @@
       gap: 12px;
     }
 
+    .chat-offer-box {
+      display: none;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--linen);
+      padding: 12px;
+      gap: 10px;
+    }
+
+    .chat-offer-box.show {
+      display: grid;
+    }
+
+    .chat-offer-title {
+      font-weight: 800;
+      color: var(--ink);
+      font-size: 0.86rem;
+    }
+
+    .chat-offer-fields {
+      display: grid;
+      grid-template-columns: minmax(130px, 0.35fr) minmax(0, 0.65fr);
+      gap: 10px;
+    }
+
+    .message-helper-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
     .message-count {
       color: var(--muted);
       font-size: 0.76rem;
@@ -453,6 +485,10 @@
       .message-row {
         max-width: 88%;
       }
+
+      .chat-offer-fields {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
@@ -534,10 +570,22 @@
             </nav>
           </section>
           <form class="message-compose" id="message-form">
+            <article class="chat-offer-box" id="chat-offer-box">
+              <span class="chat-offer-title">Make an offer</span>
+              <section class="chat-offer-fields">
+                <input class="form-input" id="chat-offer-amount-input" type="number" min="0" step="1" placeholder="Amount, e.g. 450">
+                <textarea class="form-input" id="chat-offer-note-input" rows="2" maxlength="180" placeholder="Add a short offer note or trade idea..."></textarea>
+              </section>
+              <section class="message-helper-row">
+                <span class="form-error" id="chat-offer-error"></span>
+                <span class="message-count" id="chat-offer-note-count">0/180</span>
+              </section>
+            </article>
             <textarea class="form-input" id="message-input" rows="3" maxlength="500" placeholder="Write a message..." disabled=""></textarea>
             <span class="form-error" id="message-error"></span>
             <nav class="message-compose-actions">
               <span class="message-count" id="message-count">0/500</span>
+              <button class="btn btn-secondary" id="make-offer-btn" type="button" disabled="">Make offer</button>
               <button class="btn btn-primary" id="send-message-btn" type="submit" disabled="">Send message</button>
             </nav>
           </form>
@@ -577,6 +625,7 @@
     offers: [],
     transactions: [],
     reviews: [],
+    activeConversation: null,
     facilityAvailability: null,
     messageSignature: '',
     conversationSignature: '',
@@ -616,7 +665,13 @@
     await submitMessage();
   });
   document.getElementById('message-input').addEventListener('input', updateMessageCount);
+  document.getElementById('make-offer-btn').addEventListener('click', submitChatOffer);
+  document.getElementById('chat-offer-note-input').addEventListener('input', updateChatOfferMeta);
+  document.getElementById('chat-offer-amount-input').addEventListener('input', function () {
+    document.getElementById('chat-offer-error').textContent = '';
+  });
   updateMessageCount();
+  updateChatOfferMeta();
 
   async function handlePaymentReturn() {
     const params = new URLSearchParams(window.location.search);
@@ -775,6 +830,8 @@
       document.getElementById('message-stack').innerHTML = renderEmptyPanel('Choose another conversation to continue messaging.');
       document.getElementById('message-input').disabled = true;
       document.getElementById('send-message-btn').disabled = true;
+      state.activeConversation = null;
+      updateOfferComposerAvailability();
     }
     state.conversationSignature = '';
     document.getElementById('conversation-count').textContent = `${state.conversations.length} conversation${state.conversations.length === 1 ? '' : 's'}`;
@@ -796,6 +853,45 @@
     const max = Number(input.getAttribute('maxlength')) || 500;
     count.textContent = `${input.value.length}/${max}`;
     count.classList.toggle('limit', input.value.length >= max);
+  }
+
+  function updateChatOfferMeta() {
+    const input = document.getElementById('chat-offer-note-input');
+    const count = document.getElementById('chat-offer-note-count');
+    if (!input || !count) return;
+    const max = Number(input.getAttribute('maxlength')) || 180;
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
+    count.textContent = `${input.value.length}/${max}`;
+    count.classList.toggle('limit', input.value.length >= max);
+  }
+
+  function canMakeOfferInActiveConversation() {
+    return Boolean(state.activeConversationId && state.activeConversation?.role === 'buyer');
+  }
+
+  function updateOfferComposerAvailability() {
+    const button = document.getElementById('make-offer-btn');
+    const box = document.getElementById('chat-offer-box');
+    const canMakeOffer = canMakeOfferInActiveConversation();
+    if (button) button.disabled = !canMakeOffer;
+    if (!canMakeOffer && box) resetChatOfferComposer();
+  }
+
+  function resetChatOfferComposer() {
+    const box = document.getElementById('chat-offer-box');
+    if (box) box.classList.remove('show');
+    document.getElementById('chat-offer-amount-input').value = '';
+    document.getElementById('chat-offer-note-input').value = '';
+    document.getElementById('chat-offer-error').textContent = '';
+    updateChatOfferMeta();
+  }
+
+  function buildOfferText(amount, note) {
+    const parts = [];
+    if (amount) parts.push(`R ${Number(amount).toLocaleString('en-ZA')}`);
+    if (note) parts.push(note);
+    return parts.join(' - ');
   }
 
   function updateTextareaCount(event) {
@@ -820,6 +916,7 @@
 
     document.getElementById('message-input').disabled = false;
     document.getElementById('send-message-btn').disabled = false;
+    resetChatOfferComposer();
     renderConversations();
     state.messageSignature = '';
     await loadMessages(conversationId, true, { showLoading: true, forceRender: true });
@@ -856,6 +953,8 @@
     const nextSignature = `${messages.map(message => `${message.id}:${message.createdAt}:${message.readAt || ''}`).join('|')}::${offerSignature}::${transactionSignature}::${reviewSignature}`;
     document.getElementById('thread-title').textContent = result.conversation.listingTitle;
     document.getElementById('thread-subtitle').textContent = `${result.conversation.role === 'buyer' ? 'Conversation with seller' : 'Conversation with buyer'} ${result.conversation.otherDisplayName || shortId(result.conversation.otherUserId)}`;
+    state.activeConversation = result.conversation;
+    updateOfferComposerAvailability();
 
     if (!forceRender && nextSignature === state.messageSignature) return;
 
@@ -1188,6 +1287,65 @@
         ` : ''}
       </section>
     `;
+  }
+
+  async function submitChatOffer() {
+    const box = document.getElementById('chat-offer-box');
+    const button = document.getElementById('make-offer-btn');
+    const messageInput = document.getElementById('message-input');
+    const error = document.getElementById('chat-offer-error');
+    const amount = document.getElementById('chat-offer-amount-input').value.trim();
+    const note = document.getElementById('chat-offer-note-input').value.trim();
+    const messageText = messageInput.value.trim();
+
+    if (!canMakeOfferInActiveConversation()) return;
+
+    error.textContent = '';
+    if (!box.classList.contains('show')) {
+      box.classList.add('show');
+      updateChatOfferMeta();
+      document.getElementById('chat-offer-amount-input').focus();
+      return;
+    }
+
+    if (!amount && !note) {
+      error.textContent = 'Add an amount or trade idea before sending.';
+      return;
+    }
+
+    const originalText = button.textContent;
+    button.disabled = true;
+    document.getElementById('send-message-btn').disabled = true;
+    button.textContent = 'Sending...';
+
+    let result;
+    try {
+      result = await Auth.startOffer({
+        listingId: state.activeConversation.listingId,
+        buyerId: state.user.id,
+        offerText: buildOfferText(amount, note),
+        messageText,
+      });
+    } catch (err) {
+      console.error('Offer send failed:', err);
+      result = { error: 'Offer could not be sent. Please try again.' };
+    }
+
+    button.disabled = !canMakeOfferInActiveConversation();
+    document.getElementById('send-message-btn').disabled = !state.activeConversationId;
+    button.textContent = originalText;
+
+    if (result.error) {
+      error.textContent = result.error;
+      return;
+    }
+
+    messageInput.value = '';
+    updateMessageCount();
+    resetChatOfferComposer();
+    showToast('Offer sent', 'success');
+    await loadMessages(state.activeConversationId, true, { forceRender: true });
+    await loadConversations({ forceRender: true });
   }
 
   async function submitMessage() {
