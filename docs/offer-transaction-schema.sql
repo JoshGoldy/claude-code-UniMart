@@ -91,6 +91,19 @@ for update
 using (auth.uid() = seller_id)
 with check (auth.uid() = seller_id);
 
+drop policy if exists "Buyers can revise open offers" on public.offers;
+create policy "Buyers can revise open offers"
+on public.offers
+for update
+using (auth.uid() = buyer_id and status in ('pending', 'declined', 'rejected'))
+with check (auth.uid() = buyer_id and status = 'pending');
+
+drop policy if exists "Participants can delete open offers" on public.offers;
+create policy "Participants can delete open offers"
+on public.offers
+for delete
+using ((auth.uid() = buyer_id or auth.uid() = seller_id) and status in ('pending', 'declined', 'rejected'));
+
 drop policy if exists "Participants can read transactions" on public.transactions;
 create policy "Participants can read transactions"
 on public.transactions

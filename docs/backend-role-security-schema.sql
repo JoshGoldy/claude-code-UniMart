@@ -273,6 +273,19 @@ with check (
   )
 );
 
+drop policy if exists "Participants can delete thread messages" on public.messages;
+create policy "Participants can delete thread messages"
+on public.messages
+for delete
+using (
+  exists (
+    select 1
+    from public.conversations
+    where conversations.conversation_id = messages.conversation_id
+      and auth.uid() in (conversations.buyer_id, conversations.seller_id)
+  )
+);
+
 drop policy if exists "Participants can read offers" on public.offers;
 create policy "Participants can read offers"
 on public.offers
@@ -304,6 +317,23 @@ on public.offers
 for update
 using (auth.uid() = seller_id and public.is_student_seller())
 with check (auth.uid() = seller_id and public.is_student_seller());
+
+drop policy if exists "Buyers can revise open offers" on public.offers;
+create policy "Buyers can revise open offers"
+on public.offers
+for update
+using (auth.uid() = buyer_id and public.is_student_buyer() and status in ('pending', 'declined', 'rejected'))
+with check (auth.uid() = buyer_id and public.is_student_buyer() and status = 'pending');
+
+drop policy if exists "Participants can delete open offers" on public.offers;
+create policy "Participants can delete open offers"
+on public.offers
+for delete
+using (
+  auth.uid() in (buyer_id, seller_id)
+  and status in ('pending', 'declined', 'rejected')
+  and (public.is_student_buyer() or public.is_student_seller())
+);
 
 drop policy if exists "Participants can read transactions" on public.transactions;
 create policy "Participants can read transactions"

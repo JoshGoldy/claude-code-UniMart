@@ -735,6 +735,9 @@ export async function deleteConversationForUser({ conversationId, userId } = {})
   _markConversationDeletedLocally(userId, conversationId, deletedAt);
   _markConversationReadLocally(userId, conversationId);
 
+  const cleanupResult = await _clearConversationDraftData(_conversationId(conversation));
+  if (cleanupResult.error) return cleanupResult;
+
   const { error } = await getSupabaseClient()
     .from('conversation_deletions')
     .upsert(
@@ -746,6 +749,29 @@ export async function deleteConversationForUser({ conversationId, userId } = {})
     console.warn('Conversation hidden locally only:', error.message);
     return { success: true, localOnly: true };
   }
+  return { success: true };
+}
+
+async function _clearConversationDraftData(conversationId) {
+  const nonFinalOfferStatuses = ['pending', 'declined', 'rejected'];
+
+  const offerDelete = await getSupabaseClient()
+    .from('offers')
+    .delete()
+    .eq('conversation_id', conversationId)
+    .in('status', nonFinalOfferStatuses);
+  if (offerDelete.error) {
+    return { error: _userFacingError(offerDelete.error, 'Could not clear pending offers for this conversation.') };
+  }
+
+  const messageDelete = await getSupabaseClient()
+    .from('messages')
+    .delete()
+    .eq('conversation_id', conversationId);
+  if (messageDelete.error) {
+    return { error: _userFacingError(messageDelete.error, 'Could not clear messages for this conversation.') };
+  }
+
   return { success: true };
 }
 
