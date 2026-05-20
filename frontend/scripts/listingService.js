@@ -206,6 +206,7 @@ export async function getListingDashboard(sellerId) {
   const listings = result.listings || [];
   const active = listings.filter(item => item.status === 'active');
   const sold = listings.filter(item => item.status === 'sold');
+  const totalPaid = await getSellerTotalPaid(sellerId);
   const now = new Date();
   const thisMonth = listings.filter(item => {
     const d = new Date(item.createdAt);
@@ -231,12 +232,43 @@ export async function getListingDashboard(sellerId) {
       activeListings: active.length,
       soldListings: sold.length,
       activeValue: active.reduce((sum, item) => sum + item.price, 0),
+      totalPaid,
       thisMonth,
     },
     categories: Object.entries(categoryMap).map(([label, value]) => ({ label, value })),
     monthly,
     recent: listings.slice(0, 6),
   };
+}
+
+async function getSellerTotalPaid(sellerId) {
+  if (!sellerId) return 0;
+  try {
+    const { data, error } = await getSupabaseClient()
+      .from('transactions')
+      .select('amount,status,payment_status,online_paid_amount,cash_due_amount,cash_settled_at')
+      .eq('seller_id', sellerId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn('Seller paid total unavailable:', error.message);
+      return 0;
+    }
+
+    return (data || []).reduce((sum, row = {}) => {
+      const status = String(row.status || '').toLowerCase();
+      if (!['completed', 'released', 'collected', 'closed'].includes(status)) return sum;
+
+      const amount = Number(row.amount || 0);
+      const onlinePaid = Number(row.online_paid_amount || 0);
+      const cashPaid = row.cash_settled_at ? Number(row.cash_due_amount || 0) : 0;
+      const trackedPaid = onlinePaid + cashPaid;
+      return sum + (trackedPaid > 0 ? trackedPaid : amount);
+    }, 0);
+  } catch (err) {
+    console.warn('Seller paid total unavailable:', err?.message || err);
+    return 0;
+  }
 }
 
 

@@ -305,6 +305,7 @@ describe('getListingDashboard', () => {
     expect(r.metrics).toBeDefined();
     expect(r.metrics.activeListings).toBe(1);
     expect(r.metrics.soldListings).toBe(1);
+    expect(r.metrics.totalPaid).toBeDefined();
     expect(r.categories).toBeDefined();
     expect(r.monthly).toBeDefined();
     expect(r.recent).toBeDefined();
@@ -326,6 +327,24 @@ describe('getListingDashboard', () => {
     initializeSupabase(mkSb(() => chain));
     const r = await getListingDashboard('u1');
     expect(r.metrics.activeValue).toBe(1000);
+  });
+
+  test('totalPaid sums completed online and confirmed cash payments', async () => {
+    const listings = [
+      { id: 'l1', price: 300, status: 'sold', seller_id: 'u1', category: 'books', created_at: NOW },
+    ];
+    const transactions = [
+      { amount: 300, status: 'completed', seller_id: 'u1', online_paid_amount: 150, cash_due_amount: 150, cash_settled_at: NOW },
+      { amount: 400, status: 'completed', seller_id: 'u1', online_paid_amount: 0, cash_due_amount: 400, cash_settled_at: NOW },
+      { amount: 500, status: 'accepted', seller_id: 'u1', online_paid_amount: 500, cash_due_amount: 0, cash_settled_at: null },
+    ];
+    const from = jest.fn(table => {
+      const rows = table === 'transactions' ? transactions : listings;
+      return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), order: jest.fn().mockResolvedValue({ data: rows, error: null }) };
+    });
+    initializeSupabase(mkSb(from));
+    const r = await getListingDashboard('u1');
+    expect(r.metrics.totalPaid).toBe(700);
   });
 
   test('monthly array always has 6 entries', async () => {
