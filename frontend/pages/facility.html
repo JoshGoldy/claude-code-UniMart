@@ -95,10 +95,16 @@
       font-size: 0.82rem;
       line-height: 1.5;
     }
+    .booking-main {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: start;
+    }
     .booking-footer {
       grid-column: 1 / -1;
       display: flex;
-      justify-content: space-between;
+      justify-content: flex-end;
       gap: 12px;
       align-items: center;
       padding-top: 8px;
@@ -112,6 +118,7 @@
       font-weight: 800;
       font-size: 0.75rem;
       text-transform: capitalize;
+      white-space: nowrap;
     }
     .booking-actions {
       display: flex;
@@ -198,6 +205,9 @@
       .booking-footer {
         flex-direction: column;
         align-items: flex-start;
+      }
+      .booking-main {
+        grid-template-columns: 1fr;
       }
       .booking-actions {
         justify-content: flex-start;
@@ -368,20 +378,22 @@
     return `
       <article class="booking-card">
         <section class="booking-thumb">${booking.imageUrl ? `<img src="${escapeAttribute(booking.imageUrl)}" alt="${escapeAttribute(booking.title)}" />` : 'Item'}</section>
-        <section>
-          <section class="booking-title">${escapeHtml(booking.title)}</section>
-          <section class="booking-meta">${escapeHtml(booking.category)} - ${escapeHtml(booking.condition)} - ${formatCurrency(booking.price)}</section>
-          <section class="booking-meta">Seller: ${escapeHtml(booking.sellerName)} | Buyer: ${escapeHtml(booking.buyerName)}</section>
-          <section class="booking-meta">${escapeHtml(scheduleLabel)}</section>
-          <section class="booking-meta payment-line">
-            <span class="payment-pill success">Online paid: ${formatCurrency(booking.onlinePaidAmount || 0)}</span>
-            <span class="payment-pill ${booking.cashDueAmount > 0 && !booking.cashSettledAt ? 'warning' : 'success'}">
-              Cash ${booking.cashSettledAt ? 'received' : 'due'}: ${formatCurrency(booking.cashSettledAt ? 0 : booking.cashDueAmount || 0)}
-            </span>
+        <section class="booking-main">
+          <section>
+            <section class="booking-title">${escapeHtml(booking.title)}</section>
+            <section class="booking-meta">${escapeHtml(booking.category)} - ${escapeHtml(booking.condition)} - ${formatCurrency(booking.price)}</section>
+            <section class="booking-meta">Seller: ${escapeHtml(booking.sellerName)} | Buyer: ${escapeHtml(booking.buyerName)}</section>
+            <section class="booking-meta">${escapeHtml(scheduleLabel)}</section>
+            <section class="booking-meta payment-line">
+              <span class="payment-pill success">Online paid: ${formatCurrency(booking.onlinePaidAmount || 0)}</span>
+              <span class="payment-pill ${booking.cashDueAmount > 0 && !booking.cashSettledAt ? 'warning' : 'success'}">
+                Cash ${booking.cashSettledAt ? 'received' : 'due'}: ${formatCurrency(booking.cashSettledAt ? 0 : booking.cashDueAmount || 0)}
+              </span>
+            </section>
           </section>
+          <span class="status-pill">${escapeHtml(formatStatus(booking.status))}</span>
         </section>
         <section class="booking-footer">
-          <span class="status-pill">${escapeHtml(formatStatus(booking.status))}</span>
           <section class="booking-actions">${actions}</section>
         </section>
       </article>
