@@ -215,9 +215,64 @@ async function _getConversationById(conversationId) {
   return result;
 }
 
+async function _getListingById(listingId) {
+  let result = await getSupabaseClient().from('listings').select('*').eq('listing_id', listingId).maybeSingle();
+  if (result.error || !result.data) {
+    const fallback = await getSupabaseClient().from('listings').select('*').eq('id', listingId).maybeSingle();
+    if (!fallback.error && fallback.data) return fallback;
+  }
+  return result;
+}
+
+export async function getAcceptedOfferForListing({ listingId, buyerId, sellerId } = {}) {
+  if (!listingId) return { offer: null, transaction: null };
+
+  let resolvedSellerId = sellerId;
+  if (!resolvedSellerId || !buyerId) {
+    const listingResult = await _getListingById(listingId);
+    if (!listingResult.error && listingResult.data) resolvedSellerId = listingResult.data.seller_id;
+  }
+
+  let offerQuery = getSupabaseClient()
+    .from('offers')
+    .select('*')
+    .eq('listing_id', listingId)
+    .eq('status', 'accepted')
+    .order('updated_at', { ascending: false })
+    .limit(1);
+  if (resolvedSellerId) offerQuery = offerQuery.eq('seller_id', resolvedSellerId);
+  const offerResult = await offerQuery.maybeSingle();
+  if (!offerResult.error && offerResult.data) return { offer: toOffer(offerResult.data), transaction: null };
+
+  let transactionQuery = getSupabaseClient()
+    .from('transactions')
+    .select('*')
+    .eq('listing_id', listingId)
+    .in('status', ['accepted', 'facility_booked', 'completed'])
+    .order('updated_at', { ascending: false })
+    .limit(1);
+  if (resolvedSellerId) transactionQuery = transactionQuery.eq('seller_id', resolvedSellerId);
+  const transactionResult = await transactionQuery.maybeSingle();
+  if (!transactionResult.error && transactionResult.data) return { offer: null, transaction: toTransaction(transactionResult.data) };
+
+  return { offer: null, transaction: null };
+}
+
 export async function startOffer({ listingId, buyerId, offerText, messageText = '' }) {
   const cleanMessage = String(messageText || '').trim();
   const cleanOffer = String(offerText || '').trim();
+  const listingResult = await _getListingById(listingId);
+  if (listingResult.error || !listingResult.data) return { error: (listingResult.error?.message) || 'Listing not found.' };
+
+  const listing = listingResult.data;
+  const sellerId = listing.seller_id;
+  if (!sellerId || sellerId === buyerId) return { error: 'You cannot make an offer on your own listing.' };
+
+  const acceptedResult = await getAcceptedOfferForListing({ listingId, buyerId, sellerId });
+  if (acceptedResult.offer || acceptedResult.transaction) {
+    return { error: 'This listing already has an accepted offer.' };
+  }
+
   const initialMessage = cleanMessage ? `${cleanMessage}\n\nOffer: ${cleanOffer}` : `Offer: ${cleanOffer}`;
   const conversationResult = await startConversation({
     listingId,

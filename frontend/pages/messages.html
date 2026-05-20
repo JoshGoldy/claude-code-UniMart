@@ -316,6 +316,38 @@
       font-size: 0.86rem;
     }
 
+    .chat-offer-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .chat-offer-close {
+      width: 32px;
+      height: 32px;
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      background: #fff;
+      color: var(--muted);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: 0.18s ease;
+    }
+
+    .chat-offer-close:hover {
+      background: #f8e9e7;
+      border-color: #ecc4be;
+      color: #9f3c33;
+    }
+
+    .chat-offer-close svg {
+      width: 17px;
+      height: 17px;
+    }
+
     .chat-offer-fields {
       display: grid;
       grid-template-columns: minmax(130px, 0.35fr) minmax(0, 0.65fr);
@@ -619,7 +651,12 @@
           </section>
           <form class="message-compose" id="message-form">
             <article class="chat-offer-box" id="chat-offer-box">
-              <span class="chat-offer-title">Make an offer</span>
+              <section class="chat-offer-header">
+                <span class="chat-offer-title">Make an offer</span>
+                <button class="chat-offer-close" id="close-chat-offer-btn" type="button" aria-label="Close offer">
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l8 8M14 6l-8 8" stroke-linecap="round"></path></svg>
+                </button>
+              </section>
               <section class="chat-offer-fields">
                 <input class="form-input" id="chat-offer-amount-input" type="number" min="0" step="1" placeholder="Amount, e.g. 450">
                 <textarea class="form-input" id="chat-offer-note-input" rows="2" maxlength="180" placeholder="Add a short offer note or trade idea..."></textarea>
@@ -714,6 +751,7 @@
   });
   document.getElementById('message-input').addEventListener('input', updateMessageCount);
   document.getElementById('make-offer-btn').addEventListener('click', submitChatOffer);
+  document.getElementById('close-chat-offer-btn').addEventListener('click', resetChatOfferComposer);
   document.getElementById('chat-offer-note-input').addEventListener('input', updateChatOfferMeta);
   document.getElementById('chat-offer-amount-input').addEventListener('input', function () {
     document.getElementById('chat-offer-error').textContent = '';
@@ -915,7 +953,11 @@
   }
 
   function canMakeOfferInActiveConversation() {
-    return Boolean(state.activeConversationId && state.activeConversation?.role === 'buyer');
+    const hasAcceptedOffer = state.offers.some(offer => offer.status === 'accepted');
+    const hasAcceptedTransaction = state.transactions.some(transaction => {
+      return transaction.buyerId === state.user.id && ['accepted', 'facility_booked', 'completed'].includes(String(transaction.status || '').toLowerCase());
+    });
+    return Boolean(state.activeConversationId && state.activeConversation?.role === 'buyer' && !hasAcceptedOffer && !hasAcceptedTransaction);
   }
 
   function updateOfferComposerAvailability() {
@@ -1005,7 +1047,6 @@
     document.getElementById('thread-title').textContent = result.conversation.listingTitle;
     document.getElementById('thread-subtitle').textContent = `${result.conversation.role === 'buyer' ? 'Conversation with seller' : 'Conversation with buyer'} ${result.conversation.otherDisplayName || shortId(result.conversation.otherUserId)}`;
     state.activeConversation = result.conversation;
-    updateOfferComposerAvailability();
 
     if (!forceRender && nextSignature === state.messageSignature) return;
 
@@ -1016,6 +1057,7 @@
     state.transactions = transactions;
     state.reviews = reviews;
     state.messageSignature = nextSignature;
+    updateOfferComposerAvailability();
     renderOfferPanel(result.conversation);
 
     if (!state.messages.length) {
