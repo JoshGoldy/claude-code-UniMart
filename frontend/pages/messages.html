@@ -279,6 +279,24 @@
       gap: 12px;
     }
 
+    .message-compose-actions .btn-secondary {
+      min-height: 50px;
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--sage);
+      box-shadow: none;
+    }
+
+    .message-compose-actions .btn-secondary:hover:not(:disabled) {
+      background: #eef6f0;
+      border-color: rgba(58, 102, 69, 0.3);
+    }
+
+    .message-compose-actions .btn-secondary:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
     .chat-offer-box {
       display: none;
       border: 1px solid var(--border);
@@ -1037,8 +1055,8 @@
 
     const paid = Number(transaction.onlinePaidAmount || 0);
     const cashDue = Number(transaction.cashDueAmount || Math.max(0, transaction.amount - paid));
-    const canPay = state.user.id === transaction.buyerId && !['paid', 'completed'].includes(transaction.paymentStatus);
     const paymentDone = ['paid', 'partial_paid'].includes(transaction.paymentStatus) || paid > 0;
+    const canPay = state.user.id === transaction.buyerId && !paymentDone && !['paid', 'completed'].includes(transaction.paymentStatus);
     return `
       <section class="booking-card-inline">
         <section>
