@@ -779,13 +779,16 @@ export async function updateFacilityBooking({ bookingId, staffId, action, releas
       return ['booking_id', 'facility_booking_id', 'trade_booking_id', 'handover_id', 'id'].some(column => String(item[column] || '') === String(bookingId));
     });
     const transactionId = row?.transaction_id;
+    const listingId = row?.listing_id || row?.listingId || row?.item_id || row?.itemId;
     if (transactionId) {
       await getSupabaseClient()
         .from('transactions')
         .update({ status: 'completed', updated_at: new Date().toISOString() })
         .eq('transaction_id', transactionId);
     }
+    if (listingId) {
+      await updateListingById(listingId, { status: 'sold', updated_at: new Date().toISOString() });
+    }
   }
   return result;
 }
-

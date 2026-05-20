@@ -193,6 +193,24 @@ for update
 using (public.is_admin())
 with check (public.is_admin());
 
+drop policy if exists "Staff can mark released listings sold" on public.listings;
+create policy "Staff can mark released listings sold"
+on public.listings
+for update
+using (
+  public.is_staff_or_admin()
+  and exists (
+    select 1
+    from public.facility_bookings
+    where facility_bookings.listing_id = listings.listing_id
+      and facility_bookings.status in ('released', 'completed', 'collected', 'closed')
+  )
+)
+with check (
+  public.is_staff_or_admin()
+  and status = 'sold'
+);
+
 drop policy if exists "Participants can read conversations" on public.conversations;
 create policy "Participants can read conversations"
 on public.conversations
