@@ -409,6 +409,36 @@
       gap: 10px;
     }
 
+    .offer-actions .btn {
+      min-height: 50px;
+      border-radius: var(--radius);
+    }
+
+    .offer-actions .btn-secondary {
+      background: #fff;
+      border: 1px solid var(--border);
+      color: var(--sage);
+      box-shadow: none;
+    }
+
+    .offer-actions .btn-secondary:hover:not(:disabled) {
+      background: #eef6f0;
+      border-color: rgba(58, 102, 69, 0.3);
+    }
+
+    .offer-actions .btn-soft-danger {
+      background: #fff7f5;
+      border: 1px solid #ead0cc;
+      color: #9b2f2f;
+      box-shadow: none;
+    }
+
+    .offer-actions .btn-soft-danger:hover:not(:disabled) {
+      background: #f5dddd;
+      border-color: #deb6b0;
+      color: #76251f;
+    }
+
     .booking-slot-grid > .form-group {
       flex: 1 1 180px;
     }
@@ -1117,7 +1147,7 @@
         ${canRespond ? `
           <section class="offer-actions">
             <button class="btn btn-primary" type="button" data-offer-action="accepted" data-offer-id="${escapeAttribute(offer.id)}">Accept offer</button>
-            <button class="btn btn-secondary" type="button" data-offer-action="declined" data-offer-id="${escapeAttribute(offer.id)}">Decline</button>
+            <button class="btn btn-soft-danger" type="button" data-offer-action="declined" data-offer-id="${escapeAttribute(offer.id)}">Decline</button>
           </section>
         ` : ''}
       </section>
