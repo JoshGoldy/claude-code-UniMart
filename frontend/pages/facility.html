@@ -119,6 +119,24 @@
       gap: 8px;
       justify-content: flex-end;
     }
+    .booking-actions .btn {
+      min-height: 50px;
+      border-radius: var(--radius);
+    }
+    .booking-actions .btn-secondary {
+      background: #fff;
+      border: 1px solid var(--border);
+      color: var(--sage);
+      box-shadow: none;
+    }
+    .booking-actions .btn-secondary:hover:not(:disabled) {
+      background: #eef6f0;
+      border-color: rgba(58, 102, 69, 0.3);
+    }
+    .booking-actions .btn-secondary:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
     .release-input {
       min-width: 220px;
       padding: 9px 10px;
