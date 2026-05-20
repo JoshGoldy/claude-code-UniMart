@@ -89,6 +89,64 @@ export function toTransaction(row = {}) {
   };
 }
 
+function _toFacilityBooking(row = {}) {
+  return {
+    id: row.booking_id || row.facility_booking_id || row.id,
+    transactionId: row.transaction_id || row.transactionId,
+    listingId: row.listing_id || row.listingId,
+    sellerId: row.seller_id || row.sellerId,
+    buyerId: row.buyer_id || row.buyerId,
+    dropoffScheduledAt: row.dropoff_scheduled_at || row.dropoffScheduledAt || row.drop_off_scheduled_at || row.dropoff_at || null,
+    collectionScheduledAt: row.collection_scheduled_at || row.collectionScheduledAt || row.pickup_scheduled_at || row.collection_at || null,
+    status: row.status || 'pending_dropoff',
+    createdAt: row.created_at || row.createdAt,
+    updatedAt: row.updated_at || row.updatedAt,
+  };
+}
+
+function _isTradeTransaction(transaction = {}) {
+  return transaction.amount === null || transaction.amount === undefined || Number(transaction.amount) <= 0;
+}
+
+function _canBookTradeFacility(transaction = {}) {
+  if (!transaction) return false;
+  if (_isTradeTransaction(transaction)) return true;
+  const status = String(transaction.paymentStatus || '').toLowerCase();
+  return ['cash_pending', 'partial_paid', 'paid', 'not_required'].includes(status);
+}
+
+function _activeTransactionStatus(transaction = {}) {
+  return ['accepted', 'facility_booked'].includes(String(transaction.status || '').toLowerCase());
+}
+
+function _handoverActionForUser(transaction = {}, userId) {
+  if (!_activeTransactionStatus(transaction) || !_canBookTradeFacility(transaction)) return null;
+  const booking = transaction.facilityBooking || {};
+  const hasBooking = Boolean(transaction.facilityBookingId || booking.id);
+  const hasDropoff = Boolean(booking.dropoffScheduledAt);
+  const hasCollection = Boolean(booking.collectionScheduledAt);
+  const tradeDeal = _isTradeTransaction(transaction);
+
+  if (transaction.sellerId === userId && !hasBooking) {
+    return {
+      notificationId: `${transaction.id}:seller-handover:${transaction.updatedAt || transaction.createdAt || ''}`,
+      preview: tradeDeal ? 'Set handover time' : 'Set drop-off time',
+      lastMessageAt: transaction.updatedAt || transaction.createdAt,
+    };
+  }
+
+  if (transaction.buyerId === userId && hasDropoff && !hasCollection && !tradeDeal) {
+    const actionAt = booking.updatedAt || booking.dropoffScheduledAt || transaction.updatedAt || transaction.createdAt;
+    return {
+      notificationId: `${transaction.id}:buyer-collection:${actionAt || ''}`,
+      preview: 'Choose collection time',
+      lastMessageAt: actionAt,
+    };
+  }
+
+  return null;
+}
+
 export function toReview(row = {}) {
   return {
     id: row.review_id || row.id,
@@ -311,6 +369,14 @@ function _isOfferNotificationSeen(seenOfferIds, offer = {}, status = offer.statu
 
 function _offerResponseTimestamp(offer = {}) {
   return offer.responded_at || offer.updated_at || '';
+}
+
+function _offerResponseStatuses() {
+  return ['accepted', 'declined', 'rejected'];
+}
+
+function _formatOfferResponseStatus(status = '') {
+  return status === 'declined' ? 'rejected' : status;
 }
 
 function _conversationReadWatermarkKey(userId) {
@@ -619,14 +685,22 @@ export async function getUnreadMessageNotifications(userId) {
     .select('*')
     .eq('buyer_id', userId)
     .in('conversation_id', conversationIds)
-    .in('status', ['accepted', 'declined'])
+    .in('status', _offerResponseStatuses())
     .order('updated_at', { ascending: false })
     .limit(50);
 
-  if (unreadError && offerError && buyerActionError) return { error: _userFacingError(unreadError), total: 0, notifications: [] };
+  const { data: transactionRows, error: transactionError } = await getSupabaseClient()
+    .from('transactions')
+    .select('*')
+    .in('conversation_id', conversationIds)
+    .order('updated_at', { ascending: false })
+    .limit(100);
+
+  if (unreadError && offerError && buyerActionError && transactionError) return { error: _userFacingError(unreadError), total: 0, notifications: [] };
   if (unreadError) console.warn('Falling back to offer notifications only:', unreadError.message);
   if (offerError) console.warn('Unable to load offer notifications:', offerError.message);
   if (buyerActionError) console.warn('Unable to load buyer action notifications:', buyerActionError.message);
+  if (transactionError) console.warn('Unable to load handover action notifications:', transactionError.message);
 
   const unreadByConversation = new Map();
   (unreadRows || []).forEach(message => {
@@ -657,7 +731,51 @@ export async function getUnreadMessageNotifications(userId) {
       buyerActionsByConversation.get(offer.conversation_id).push(offer);
     });
 
-  if (!unreadByConversation.size && !pendingOffersByConversation.size && !buyerActionsByConversation.size) return { total: 0, notifications: [] };
+  let transactions = transactionError ? [] : (transactionRows || []).map(toTransaction);
+  const transactionIds = transactions.map(transaction => transaction.id).filter(Boolean);
+  const bookingIds = transactions.map(transaction => transaction.facilityBookingId).filter(Boolean);
+  if (transactions.length && (bookingIds.length || transactionIds.length)) {
+    try {
+      let bookingRows = [];
+      if (bookingIds.length) {
+        const bookingsByIdResult = await getSupabaseClient()
+          .from('facility_bookings')
+          .select('*')
+          .in('booking_id', bookingIds);
+        if (!bookingsByIdResult.error) bookingRows = [...bookingRows, ...(bookingsByIdResult.data || [])];
+      }
+      if (transactionIds.length) {
+        const bookingsByTransactionResult = await getSupabaseClient()
+          .from('facility_bookings')
+          .select('*')
+          .in('transaction_id', transactionIds);
+        if (!bookingsByTransactionResult.error) bookingRows = [...bookingRows, ...(bookingsByTransactionResult.data || [])];
+      }
+      const bookingsById = new Map(bookingRows.map(row => [row.booking_id || row.id, _toFacilityBooking(row)]));
+      const bookingsByTransaction = new Map(bookingRows.map(row => [row.transaction_id, _toFacilityBooking(row)]));
+      transactions = transactions.map(transaction => {
+        const booking = bookingsById.get(transaction.facilityBookingId) || bookingsByTransaction.get(transaction.id) || null;
+        return {
+          ...transaction,
+          facilityBookingId: transaction.facilityBookingId || booking?.id || null,
+          facilityBooking: booking,
+        };
+      });
+    } catch (err) {
+      console.warn('Unable to load handover booking notifications:', err?.message || err);
+    }
+  }
+
+  const handoverActionsByConversation = new Map();
+  transactions
+    .map(transaction => ({ transaction, action: _handoverActionForUser(transaction, userId) }))
+    .filter(({ transaction, action }) => action && _isAfterLocalRead(userId, transaction.conversationId, action.lastMessageAt))
+    .forEach(({ transaction, action }) => {
+      if (!handoverActionsByConversation.has(transaction.conversationId)) handoverActionsByConversation.set(transaction.conversationId, []);
+      handoverActionsByConversation.get(transaction.conversationId).push(action);
+    });
+
+  if (!unreadByConversation.size && !pendingOffersByConversation.size && !buyerActionsByConversation.size && !handoverActionsByConversation.size) return { total: 0, notifications: [] };
 
   const [usersById, listingsById] = await Promise.all([
     _fetchUsersByIds(conversations.flatMap(row => [row.buyer_id, row.seller_id])),
@@ -671,7 +789,8 @@ export async function getUnreadMessageNotifications(userId) {
       const unreadMessages = unreadByConversation.get(conversationId) || [];
       const pendingOffers = pendingOffersByConversation.get(conversationId) || [];
       const buyerActions = buyerActionsByConversation.get(conversationId) || [];
-      if (!unreadMessages.length && !pendingOffers.length && !buyerActions.length) return [];
+      const handoverActions = handoverActionsByConversation.get(conversationId) || [];
+      if (!unreadMessages.length && !pendingOffers.length && !buyerActions.length && !handoverActions.length) return [];
 
       const conversation = toConversation({
         ...row,
@@ -707,11 +826,20 @@ export async function getUnreadMessageNotifications(userId) {
         notificationId: _offerNotificationKey(offer, offer.status),
         notificationKind: 'offer-response',
         unreadCount: 1,
-        preview: `Offer ${offer.status}`,
+        preview: `Offer ${_formatOfferResponseStatus(offer.status)}`,
         lastMessageAt: _offerResponseTimestamp(offer) || offer.created_at || conversation.lastMessageAt,
       }));
 
-      return [...messageNotifications, ...offerNotifications, ...actionNotifications];
+      const handoverNotifications = handoverActions.map(action => ({
+        ...conversation,
+        notificationId: action.notificationId,
+        notificationKind: 'handover-action',
+        unreadCount: 1,
+        preview: action.preview,
+        lastMessageAt: action.lastMessageAt || conversation.lastMessageAt,
+      }));
+
+      return [...messageNotifications, ...offerNotifications, ...actionNotifications, ...handoverNotifications];
     })
     .sort((a, b) => new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0));
 
@@ -824,7 +952,7 @@ export async function getConversationMessages({ conversationId, userId, markRead
     if (markRead && !offersResult.error) {
       const visibleOfferNotifications = (offersResult.data || []).filter(offer => {
         if (conversationRow.seller_id === userId) return offer.status === 'pending';
-        if (conversationRow.buyer_id === userId) return ['accepted', 'declined'].includes(offer.status);
+        if (conversationRow.buyer_id === userId) return _offerResponseStatuses().includes(offer.status);
         return false;
       });
       _markOfferNotificationsSeen(userId, visibleOfferNotifications);
@@ -876,6 +1004,15 @@ export async function getConversationMessages({ conversationId, userId, markRead
       } catch (err) {
         console.warn('Facility booking details unavailable for this thread:', err?.message || err);
       }
+    }
+
+    if (markRead) {
+      _markConversationReadLocally(userId, resolvedConversationId, _afterLatestTimestamp([
+        ...(data || []),
+        ...(offersResult.data || []),
+        ...transactions,
+        ...transactions.map(transaction => transaction.facilityBooking).filter(Boolean),
+      ]));
     }
 
     transactionIds = transactions.map(transaction => transaction.id).filter(Boolean);

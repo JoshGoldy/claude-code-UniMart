@@ -996,7 +996,10 @@
     const transactions = result.transactions || [];
     const reviews = result.reviews || [];
     const offerSignature = offers.map(offer => `${offer.id}:${offer.status}:${offer.updatedAt || ''}`).join('|');
-    const transactionSignature = transactions.map(transaction => `${transaction.id}:${transaction.status}:${transaction.paymentStatus || ''}:${transaction.onlinePaidAmount || 0}:${transaction.cashDueAmount || 0}:${transaction.facilityBookingId || ''}`).join('|');
+    const transactionSignature = transactions.map(transaction => {
+      const booking = transaction.facilityBooking || {};
+      return `${transaction.id}:${transaction.status}:${transaction.paymentStatus || ''}:${transaction.onlinePaidAmount || 0}:${transaction.cashDueAmount || 0}:${transaction.facilityBookingId || booking.id || ''}:${bookingSlotValue(booking, 'dropoff') || ''}:${bookingSlotValue(booking, 'collection') || ''}:${booking.updatedAt || booking.updated_at || ''}`;
+    }).join('|');
     const reviewSignature = reviews.map(review => `${review.id}:${review.rating}:${review.status}:${review.updatedAt || review.createdAt || ''}`).join('|');
     const nextSignature = `${messages.map(message => `${message.id}:${message.createdAt}:${message.readAt || ''}`).join('|')}::${offerSignature}::${transactionSignature}::${reviewSignature}`;
     document.getElementById('thread-title').textContent = result.conversation.listingTitle;
@@ -1180,20 +1183,30 @@
     const status = String(transaction?.status || '').toLowerCase();
     if (['facility_booked', 'completed', 'released', 'collected'].includes(status)) return true;
     const booking = transaction?.facilityBooking || {};
-    return Boolean(transaction?.facilityBookingId && booking.dropoffScheduledAt && booking.collectionScheduledAt);
+    return Boolean((transaction?.facilityBookingId || booking.id) && bookingSlotValue(booking, 'dropoff') && bookingSlotValue(booking, 'collection'));
+  }
+
+  function bookingSlotValue(booking = {}, type) {
+    if (type === 'collection') {
+      return booking.collectionScheduledAt || booking.collection_scheduled_at || booking.scheduled_collection_at || booking.pickup_scheduled_at || booking.collection_at || booking.pickup_at || null;
+    }
+    return booking.dropoffScheduledAt || booking.dropoff_scheduled_at || booking.drop_off_scheduled_at || booking.scheduled_dropoff_at || booking.dropoff_at || booking.drop_off_at || null;
   }
 
   function renderBookingCard(transaction) {
     const booking = transaction.facilityBooking || {};
-    const hasDropoff = Boolean(booking.dropoffScheduledAt);
-    const hasCollection = Boolean(booking.collectionScheduledAt);
+    const bookingId = transaction.facilityBookingId || booking.id || booking.booking_id;
+    const dropoffScheduledAt = bookingSlotValue(booking, 'dropoff');
+    const collectionScheduledAt = bookingSlotValue(booking, 'collection');
+    const hasDropoff = Boolean(dropoffScheduledAt);
+    const hasCollection = Boolean(collectionScheduledAt);
     const tradeDeal = isTradeDeal(transaction);
 
-    if (transaction.facilityBookingId && hasCollection) {
+    if (bookingId && hasCollection) {
       const title = tradeDeal ? 'Trade facility handover booked' : 'Collection booked';
       const scheduleText = tradeDeal
-        ? `Shared handover time: ${escapeHtml(formatSlot(booking.dropoffScheduledAt))}.`
-        : `Seller drop-off: ${escapeHtml(formatSlot(booking.dropoffScheduledAt))}. Buyer collection: ${escapeHtml(formatSlot(booking.collectionScheduledAt))}.`;
+        ? `Shared handover time: ${escapeHtml(formatSlot(dropoffScheduledAt))}.`
+        : `Seller drop-off: ${escapeHtml(formatSlot(dropoffScheduledAt))}. Buyer collection: ${escapeHtml(formatSlot(collectionScheduledAt))}.`;
       const instructionText = tradeDeal
         ? (state.user.id === transaction.buyerId ? 'Meet the seller at this time to complete the transfer. Bring proof of identity.' : 'Meet the buyer at this time to complete the transfer.')
         : (state.user.id === transaction.buyerId ? 'Collect your item at your selected time. Bring proof of identity.' : 'Drop off the item at your selected time. The buyer will collect at their selected time.');
@@ -1207,7 +1220,7 @@
       `;
     }
 
-    if (!transaction.facilityBookingId && state.user.id === transaction.buyerId) {
+    if (!bookingId && state.user.id === transaction.buyerId) {
       return `
         <section class="booking-card-inline">
           <section class="offer-title">Waiting for seller drop-off time</section>
@@ -1217,7 +1230,7 @@
       `;
     }
 
-    if (!transaction.facilityBookingId && state.user.id === transaction.sellerId) {
+    if (!bookingId && state.user.id === transaction.sellerId) {
       return `
         <section class="booking-card-inline">
           <section>
@@ -1237,12 +1250,12 @@
       `;
     }
 
-    if (transaction.facilityBookingId && hasDropoff && !hasCollection && state.user.id === transaction.buyerId) {
+    if (bookingId && hasDropoff && !hasCollection && state.user.id === transaction.buyerId) {
       return `
         <section class="booking-card-inline">
           <section>
             <section class="offer-title">Choose your collection time</section>
-            <section class="offer-meta">Seller drop-off is set for ${escapeHtml(formatSlot(booking.dropoffScheduledAt))}. Choose when you will collect the item.</section>
+            <section class="offer-meta">Seller drop-off is set for ${escapeHtml(formatSlot(dropoffScheduledAt))}. Choose when you will collect the item.</section>
             ${renderFacilityInfo()}
           </section>
           <section class="booking-slot-grid">
@@ -1252,16 +1265,16 @@
             </section>
           </section>
           <span class="form-error" id="handover-booking-error"></span>
-          <button class="btn btn-primary" id="confirm-collection-btn" data-transaction-id="${escapeAttribute(transaction.id)}" data-booking-id="${escapeAttribute(transaction.facilityBookingId)}" type="button">Confirm collection time</button>
+          <button class="btn btn-primary" id="confirm-collection-btn" data-transaction-id="${escapeAttribute(transaction.id)}" data-booking-id="${escapeAttribute(bookingId)}" type="button">Confirm collection time</button>
         </section>
       `;
     }
 
-    if (transaction.facilityBookingId && hasDropoff && !hasCollection) {
+    if (bookingId && hasDropoff && !hasCollection) {
       return `
         <section class="booking-card-inline">
           <section class="offer-title">Waiting for buyer collection time</section>
-          <section class="offer-meta">Your drop-off is set for ${escapeHtml(formatSlot(booking.dropoffScheduledAt))}. The buyer now needs to choose their collection time.</section>
+          <section class="offer-meta">Your drop-off is set for ${escapeHtml(formatSlot(dropoffScheduledAt))}. The buyer now needs to choose their collection time.</section>
           ${renderFacilityInfo()}
         </section>
       `;
@@ -1577,7 +1590,7 @@
   async function loadBuyerCollectionSlots(transaction) {
     const button = document.getElementById('confirm-collection-btn');
     const error = document.getElementById('handover-booking-error');
-    const dropoffValue = transaction?.facilityBooking?.dropoffScheduledAt;
+    const dropoffValue = bookingSlotValue(transaction?.facilityBooking || {}, 'dropoff');
     if (!button || !dropoffValue) return;
     button.disabled = true;
     button.textContent = 'Loading slots...';
