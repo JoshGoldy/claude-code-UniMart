@@ -110,6 +110,20 @@ on public.users
 for select
 using (auth.uid() = id or public.is_staff_or_admin());
 
+drop policy if exists "Authenticated users can read active listing seller profiles" on public.users;
+create policy "Authenticated users can read active listing seller profiles"
+on public.users
+for select
+using (
+  auth.uid() is not null
+  and exists (
+    select 1
+    from public.listings
+    where listings.seller_id = users.id
+      and listings.status = 'active'
+  )
+);
+
 drop policy if exists "Users can insert own profile" on public.users;
 create policy "Users can insert own profile"
 on public.users

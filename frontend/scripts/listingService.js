@@ -110,9 +110,41 @@ export async function getMarketplaceListings() {
   if (error) {
     const fallback = await getSupabaseClient().from('listings').select('*').eq('status', 'active').order('created_at', { ascending: false });
     if (fallback.error) return { error: _userFacingError(fallback.error) };
-    return { listings: await attachSellerRatings((fallback.data || []).map(toListing)) };
+    return { listings: await attachSellerRatings(await attachSellerProfiles((fallback.data || []).map(toListing))) };
   }
-  return { listings: await attachSellerRatings((data || []).map(toListing)) };
+  return { listings: await attachSellerRatings(await attachSellerProfiles((data || []).map(toListing))) };
+}
+
+async function attachSellerProfiles(listings = []) {
+  const sellerIds = [...new Set((listings || [])
+    .filter(listing => !listing.sellerUsername && !listing.sellerFullName && !listing.sellerDisplayName)
+    .map(listing => listing.sellerId)
+    .filter(Boolean))];
+  if (!sellerIds.length) return listings || [];
+
+  const { data, error } = await getSupabaseClient()
+    .from('users')
+    .select('id,full_name,email,username,university,uni_campus')
+    .in('id', sellerIds);
+
+  if (error) {
+    console.warn('Seller profile hydration unavailable:', error.message);
+    return listings || [];
+  }
+
+  const usersById = new Map((data || []).map(user => [user.id, user]));
+  return (listings || []).map(listing => {
+    const seller = usersById.get(listing.sellerId);
+    if (!seller) return listing;
+    return {
+      ...listing,
+      sellerDisplayName: listing.sellerDisplayName || seller.username || seller.full_name || seller.email || null,
+      sellerFullName: listing.sellerFullName || seller.full_name || null,
+      sellerUsername: listing.sellerUsername || seller.username || null,
+      sellerUniversity: listing.sellerUniversity || seller.university || null,
+      sellerCampus: listing.sellerCampus || seller.uni_campus || seller.campus || null,
+    };
+  });
 }
 
 export async function getSavedListingIds(userId) {

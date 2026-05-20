@@ -82,6 +82,34 @@ describe('getMarketplaceListings', () => {
     expect(Array.isArray(result.listings)).toBe(true);
   });
 
+  test('hydrates missing seller usernames for all active listing sellers', async () => {
+    const listingRows = [
+      { id: 'l1', title: 'Book', price: 150, status: 'active', seller_id: 'seller-a', category: 'books', created_at: NOW },
+      { id: 'l2', title: 'Laptop', price: 500, status: 'active', seller_id: 'seller-b', category: 'electronics', created_at: NOW },
+    ];
+    const userRows = [
+      { id: 'seller-a', username: 'alice', full_name: 'Alice Seller' },
+      { id: 'seller-b', username: 'bravo', full_name: 'Bravo Seller' },
+    ];
+    const from = jest.fn(table => {
+      if (table === 'users') {
+        return { select: jest.fn().mockReturnThis(), in: jest.fn().mockResolvedValue({ data: userRows, error: null }) };
+      }
+      return {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockResolvedValue({ data: listingRows, error: null }),
+        in: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue({ data: [], error: null }),
+      };
+    });
+    initializeSupabase(mkSb(from));
+
+    const result = await getMarketplaceListings();
+
+    expect(result.listings.map(listing => listing.sellerUsername)).toEqual(['alice', 'bravo']);
+  });
+
   test('falls back to simple query when join query fails', async () => {
     let call = 0;
     const from = jest.fn(() => {
