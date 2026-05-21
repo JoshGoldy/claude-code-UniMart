@@ -40,7 +40,7 @@
     }
     .management-grid {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 14px;
       margin-bottom: 22px;
     }
@@ -108,6 +108,17 @@
     }
     .admin-table tr:last-child td {
       border-bottom: 0;
+    }
+    .admin-table .nowrap {
+      white-space: nowrap;
+    }
+    .listing-table .status-pill {
+      white-space: nowrap;
+    }
+    .listing-table td:nth-child(2),
+    .listing-table td:nth-child(3),
+    .listing-table td:nth-child(4) {
+      white-space: nowrap;
     }
     .moderation-list {
       display: grid;
@@ -396,15 +407,20 @@
     }
     @media (max-width: 1100px) {
       .admin-grid,
-      .management-grid,
       .admin-layout {
         grid-template-columns: 1fr;
+      }
+      .management-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
       .admin-panel {
         overflow-x: auto;
       }
     }
     @media (max-width: 720px) {
+      .management-grid {
+        grid-template-columns: 1fr;
+      }
       .config-grid,
       .permission-grid {
         grid-template-columns: 1fr;
@@ -509,7 +525,7 @@
               <span class="panel-title">User and Role Management</span>
               <span class="panel-copy">Give users the right level of access for their responsibilities.</span>
             </header>
-            <table class="admin-table">
+            <table class="admin-table listing-table">
               <thead>
                 <tr><th>User</th><th>Email</th><th>Account</th><th>Role</th></tr>
               </thead>
@@ -905,12 +921,17 @@
       button.addEventListener('click', async function () {
         if (!window.confirm('Remove this listing from the marketplace?')) return;
         const note = getModerationNote('Reason for removing this listing:', 'Removed from flagged content review');
+        const originalText = this.textContent;
+        this.disabled = true;
+        this.textContent = 'Removing...';
         const result = await Auth.removeListingAsAdmin({
           listingId: this.dataset.removeListing,
           adminId: adminState.user.id,
           note,
         });
         if (result.error) {
+          this.disabled = false;
+          this.textContent = originalText;
           showToast(result.error, 'error');
           return;
         }
@@ -945,7 +966,7 @@
         <td>${escapeHtml(listing.title)}<br /><span class="muted">${escapeHtml(listing.category)}</span></td>
         <td><span class="status-pill">${escapeHtml(formatStatusLabel(listing.status))}</span></td>
         <td>${formatCurrency(listing.price)}</td>
-        <td><button class="btn-secondary" data-remove-listing="${escapeAttribute(listing.id)}">Remove</button></td>
+        <td><button class="btn-secondary" type="button" data-remove-listing="${escapeAttribute(listing.id)}">Remove</button></td>
       </tr>
     `).join('') : '<tr><td colspan="4" class="empty-row">No recent listings.</td></tr>';
 
@@ -953,12 +974,17 @@
       button.addEventListener('click', async function () {
         if (!window.confirm('Remove this listing from the marketplace?')) return;
         const note = getModerationNote('Reason for removing this listing:', 'Removed from recent listing review');
+        const originalText = this.textContent;
+        this.disabled = true;
+        this.textContent = 'Removing...';
         const result = await Auth.removeListingAsAdmin({
           listingId: this.dataset.removeListing,
           adminId: adminState.user.id,
           note,
         });
         if (result.error) {
+          this.disabled = false;
+          this.textContent = originalText;
           showToast(result.error, 'error');
           return;
         }
