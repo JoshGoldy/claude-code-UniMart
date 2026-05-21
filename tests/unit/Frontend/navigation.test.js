@@ -119,7 +119,8 @@ describe('Navigation Service Module', () => {
       buildDynamicNavigation(user);
       
       const nav = document.querySelector('.sidebar-nav');
-      expect(nav.innerHTML).toContain('Seller Messages');
+      expect(nav.innerHTML).toContain('Messages');
+      expect(nav.innerHTML).not.toContain('Seller Messages');
     });
   });
 

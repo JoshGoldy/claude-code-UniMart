@@ -32,7 +32,7 @@ export function buildDynamicNavigation(user) {
     if (hasFeature(user, 'messages')) {
       manageItems.unshift({ 
         href: 'messages.html', 
-        label: isSellerAccount(user) ? 'Seller Messages' : 'Messages', 
+        label: 'Messages', 
         icon: 'messages', 
         badgeId: 'nav-message-count' 
       });
