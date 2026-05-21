@@ -980,11 +980,17 @@ p {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
   padding: 9px 12px;
+  border: 0;
   border-radius: var(--radius-sm);
+  background: transparent;
   font-size: 0.85rem;
+  font: inherit;
   color: var(--ink);
   cursor: pointer;
+  text-align: left;
+  text-decoration: none;
 }
 
 .dropdown-item:hover {
